@@ -379,7 +379,34 @@ storageRouter.post("/storage/items/:item/rename", async (req, res) => {
 
 storageRouter.post("/storage/items/:item/delete", async (req, res) => {
   const item = requireItem(req.params.item);
+  const prefix = typeof req.body?.prefix === "string" && req.body.prefix !== "" ? req.body.prefix : null;
   const keys = req.body?.keys;
+
+  // Recursive folder delete: every key under a prefix, including the marker.
+  if (prefix !== null) {
+    const normalized = normalizePrefix(requireKey(prefix, "prefix"));
+    const all = await listAllKeys(item);
+    const targets = all
+      .map((entry) => entry.key)
+      .filter((key) => key === normalized.slice(0, -1) || key.startsWith(normalized));
+    if (targets.length === 0) {
+      res.json({ deleted: 0, failures: [], folder: normalized });
+      return;
+    }
+    const failures: Array<{ key: string; message: string }> = [];
+    let deleted = 0;
+    for (const key of targets) {
+      try {
+        await deleteObject(item, key);
+        deleted += 1;
+      } catch (error) {
+        failures.push({ key, message: error instanceof Error ? error.message : "Delete failed." });
+      }
+    }
+    res.json({ deleted, failures, folder: normalized });
+    return;
+  }
+
   if (!Array.isArray(keys) || keys.length === 0 || keys.length > MAX_DELETE_BATCH) {
     throw new Ias3ApiError(400, "InvalidBatch", `Provide 1-${MAX_DELETE_BATCH} keys to delete.`);
   }
