@@ -1,6 +1,10 @@
-# Keepsake Cloud Storage
+# ArchVault — Internet Archive Drive
 
-Keepsake is a responsive personal archive workspace for browsing cloud files and monitoring transparent transfers.
+ArchVault is a connected, Google-Drive-style cloud drive on top of Internet
+Archive IAS3 (S3-compatible) storage. One archive.org item = one "drive".
+Works on any device via the responsive web app: browse folders, stream and
+preview media, upload/download through a real transfer center, rename/move,
+delete recursively, and mount public archive.org items read-only.
 
 ## Run & Operate
 
@@ -8,46 +12,67 @@ Keepsake is a responsive personal archive workspace for browsing cloud files and
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required env (API server only): secrets below. `DATABASE_URL` is **not**
+  needed for the storage experience (the shared `lib/db` remains reserved for
+  future metadata).
+
+### Required runtime secrets (server-side only — never in the repo)
+
+| Secret            | Purpose                                             |
+|-------------------|-----------------------------------------------------|
+| `IAS3_ENDPOINT`   | S3 endpoint; default `https://s3.us.archive.org`    |
+| `IAS3_ACCESS_KEY` | IA S3 access key (archive.org → Account → S3 keys)  |
+| `IAS3_SECRET_KEY` | IA S3 secret key                                    |
+| `IAS3_REGION`     | SigV4 presigning region; default `us-east-1`        |
+
+Set them in Replit Secrets. The browser never sees these values; clients
+only call the JSON API under `/api/storage`.
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- API: Express 5, zero-dependency IAS3 client (LOW auth for server-side S3
+  calls, manual SigV4 for browser-direct presigned GET URLs)
+- Web: React 19, Vite 7, Tailwind v4 design system, TanStack Query, wouter
+- API contract: `lib/api-spec/openapi.yaml` (keep it in sync with routes)
 
 ## Where things live
 
-- `artifacts/cloud-storage/` — responsive web application shell and file-browser experience
-- `artifacts/api-server/` — shared API service, currently retained for the later IAS3 integration phase
-- `lib/api-spec/openapi.yaml` — shared API contract source of truth
-- `lib/db/` — shared Drizzle/PostgreSQL library, reserved for server metadata when backend work begins
+- `artifacts/api-server/src/storage-provider.ts` — IAS3 client: bucket/object
+  ops, virtual-folder-safe listings, presigning, discovery.
+- `artifacts/api-server/src/routes/storage.ts` — REST API (browse, stream,
+  upload proxy, rename, delete incl. folder recursion, search, discover).
+- `artifacts/cloud-storage/src/App.tsx` — connected drive UI (browse grid/list,
+  preview modal, transfer center, settings).
+- `artifacts/cloud-storage/src/lib/storage-api.ts` — typed API client with
+  XHR-progress uploads and streamed downloads.
+- `lib/api-spec/openapi.yaml` — API contract source of truth.
 
 ## Architecture decisions
 
-- The first milestone is intentionally honest and disconnected: the UI does not invent file records or transfer progress before IAS3 is connected.
-- The frontend is provider-agnostic; IAS3-specific behavior and transfer scheduling belong outside React components.
-- The shell is desktop-first but collapses into touch-friendly mobile navigation without relying on heavy media or continuous animation.
-- The transfer center is shaped around typed engine events so speed, ETA, percentage, retry, and cancellation remain engine-owned values.
+- **No fake data, ever.** Listings, transfers, speeds, and ETAs come from
+  live wire events only (trust model in `.agents/memory/`).
+- Uploads and downloads stream through the API with bounded memory
+  (`duplex: "half"` fetch), so arbitrarily large files never hit RAM.
+- Browser-direct media uses 15-minute SigV4 presigned URLs; in-app preview
+  uses the same-origin `/stream` proxy, which is CORS-proof and ignores
+  nothing the client needs for progressive playback.
+- Keys with `/` act as folders; IA's S3 ignores `delimiter`, so folder views
+  are grouped server-side from flat prefix listings.
 
-## Product
+## Internet Archive platform constraints (surfaced in Settings)
 
-Keepsake provides a fast personal archive shell with folder navigation, search, recent files, settings/account surfaces, storage status, file actions, preview/detail states, and a transparent transfer center. IAS3-backed file operations are the next implementation phase.
+- Listings are **eventually consistent** (seconds; on dark items possibly
+  minutes). Direct GET/HEAD is consistent immediately after upload. The UI
+  auto-refreshes listings after writes.
+- The S3 endpoint **ignores HTTP Range** requests — media streams
+  progressively from the start; seeking restarts the stream.
+- Item identifiers live in a **global namespace**; creation can 409.
+- Folder listings are capped at 8,000 scanned keys per view.
 
 ## User preferences
 
-- Keep this provider-agnostic and do not fake backend data, transfer progress, or unsupported capabilities.
-- Prioritize low-memory behavior, responsive browsing, and clear operational status over decorative effects.
-
-## Gotchas
-
-- S3/IAS3 credentials must come from Replit Secrets/runtime configuration only; never place them in source, bundles, logs, or docs.
-- The shared logical chunk limit is 52,428,800 bytes; actual streaming buffers must remain smaller and bounded.
-
-## Pointers
-
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- Keep everything provider-agnostic at the UI layer; IAS3 specifics stay in
+  `storage-provider.ts`.
+- Prioritize low-memory behavior, honest operational status, and responsive
+  browsing over decorative effects.
