@@ -287,7 +287,7 @@ paths:
     post:
       operationId: storageDelete
       tags: [storage]
-      summary: Delete 1-100 object keys (serial, IA rate-friendly)
+      summary: Delete 1-100 explicit keys, or a whole folder prefix recursively
       parameters:
         - $ref: "#/components/parameters/ItemParam"
       requestBody:
@@ -295,14 +295,21 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required: [keys]
-              properties:
-                keys:
-                  type: array
-                  items: { type: string }
-                  minItems: 1
-                  maxItems: 100
+              oneOf:
+                - type: object
+                  required: [keys]
+                  properties:
+                    keys:
+                      type: array
+                      items: { type: string }
+                      minItems: 1
+                      maxItems: 100
+                - type: object
+                  required: [prefix]
+                  properties:
+                    prefix:
+                      type: string
+                      description: Folder prefix ending with "/"; every key under it is deleted
       responses:
         "200":
           description: Delete result (partial failures possible)
