@@ -47,6 +47,7 @@ button:disabled { cursor: not-allowed; }
 .connection-card { padding:12px; background:hsl(var(--surface-raised)); border:1px solid hsl(var(--border)); border-radius:10px; }
 .connection-status { display:flex; align-items:center; gap:7px; font-size:11px; font-weight:700; }
 .status-dot { width:7px; height:7px; background:hsl(var(--warning)); border-radius:99px; }
+.status-dot.ready { background:hsl(var(--success)); }
 .connection-copy { color:hsl(var(--muted-foreground)); font-size:11px; line-height:1.45; margin:7px 0 11px; }
 .text-button { color:hsl(var(--primary)); border:0; background:transparent; font-size:11px; font-weight:700; padding:0; }
 .main-area { min-width:0; flex:1; display:flex; flex-direction:column; }
@@ -132,7 +133,10 @@ button:disabled { cursor: not-allowed; }
 .modal-title { margin:0; font-size:17px; letter-spacing:-.03em; }
 .modal-copy { margin:7px 0 19px; color:hsl(var(--muted-foreground)); font-size:12px; line-height:1.55; }
 .contract { border:1px solid hsl(var(--border)); background:hsl(var(--background)); border-radius:8px; padding:13px; font:10px/1.65 var(--app-font-mono); color:hsl(var(--ink-soft)); }
-.modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:19px; }
+.modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:19px; flex-wrap:wrap; }
+.connection-result { margin-top:14px; border-radius:8px; padding:10px 11px; font-size:12px; line-height:1.45; }
+.connection-result.success { background:#e4f1ea; color:#245d43; border:1px solid #b9ddc8; }
+.connection-result.failure { background:#fff0e9; color:#8e4f37; border:1px solid #edc9b8; }
 .toast-note { position:fixed; right:22px; bottom:22px; z-index:30; background:hsl(var(--foreground)); color:hsl(var(--primary-foreground)); border-radius:8px; padding:11px 14px; font-size:11px; box-shadow:0 10px 24px rgba(31,45,38,.18); animation:slide-in .2s ease both; }
 @keyframes slide-in { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
 @media (max-width: 900px) { .sidebar { width:210px; flex-basis:210px; } .topbar { padding:0 22px; } .content { padding:26px 22px 40px; } .info-grid { grid-template-columns:1fr 1fr; } .info-card.highlight { grid-column:span 2; } }

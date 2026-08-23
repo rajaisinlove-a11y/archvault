@@ -32,6 +32,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
+import { testStorageConnection, type ConnectionTestResult } from '@/lib/storage-api';
 
 const queryClient = new QueryClient();
 
@@ -96,7 +97,7 @@ function sectionForPath(path: string): Section {
   return 'browse';
 }
 
-function Sidebar({ section, onConnect }: { section: Section; onConnect: () => void }) {
+function Sidebar({ section, onConnect, connectionReady }: { section: Section; onConnect: () => void; connectionReady: boolean }) {
   return (
     <aside className="sidebar" aria-label="Primary navigation">
       <div className="brand">
@@ -150,12 +151,12 @@ function Sidebar({ section, onConnect }: { section: Section; onConnect: () => vo
       <div className="sidebar-footer">
         <div className="connection-card">
           <div className="connection-status">
-            <span className="status-dot" />
-            IAS3 not connected
+             <span className={`status-dot ${connectionReady ? 'ready' : ''}`} />
+             {connectionReady ? 'IAS3 connected' : 'IAS3 not connected'}
           </div>
-          <p className="connection-copy">Your archive will appear here once a storage endpoint is connected.</p>
-          <button className="text-button" onClick={onConnect} data-testid="button-connect-sidebar">
-            Review connection
+          <p className="connection-copy">{connectionReady ? 'Endpoint verified. File listing is the next integration step.' : 'Your archive will appear here once a storage endpoint is connected.'}</p>
+           <button className="text-button" onClick={onConnect} data-testid="button-connect-sidebar">
+             {connectionReady ? 'Test again' : 'Review connection'}
           </button>
         </div>
       </div>
@@ -230,7 +231,30 @@ function PageHeading({
   );
 }
 
-function UnavailableModal({ onClose, onSettings }: { onClose: () => void; onSettings: () => void }) {
+function ConnectionModal({ onClose, onSettings, onConnected }: { onClose: () => void; onSettings: () => void; onConnected: () => void }) {
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState<ConnectionTestResult | null>(null);
+
+  const handleTest = async () => {
+    setTesting(true);
+    setResult(null);
+    try {
+      const nextResult = await testStorageConnection();
+      setResult(nextResult);
+      if (nextResult.ok) onConnected();
+    } catch {
+      setResult({
+        ok: false,
+        status: 'unreachable',
+        message: 'The connection test could not reach the API server.',
+        endpoint: null,
+        item: null,
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
     <div className="modal-scrim" role="presentation" onMouseDown={onClose}>
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="connection-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -243,14 +267,19 @@ function UnavailableModal({ onClose, onSettings }: { onClose: () => void; onSett
             <X size={17} />
           </button>
         </div>
-        <p className="modal-copy">Keepsake is ready for your IAS3 connection. No files, metadata, or transfer events are being shown until the endpoint is available.</p>
+         <p className="modal-copy">Test the configured IAS3 endpoint without exposing credentials to the browser. No files or transfer events are shown until the provider responds successfully.</p>
         <div className="contract" aria-label="Connection requirements" data-testid="text-connection-contract">
-          endpoint        IAS3-compatible object storage<br />
-          credentials     not configured<br />
-          file events     awaiting connection
+           endpoint        {result?.endpoint ?? 'IAS3-compatible object storage'}<br />
+           credentials     {result?.status === 'connected' ? 'configured' : 'stored securely'}<br />
+           item            {result?.item ?? 'configured item identifier'}<br />
+           file events     {result?.status === 'connected' ? 'provider ready' : 'awaiting connection'}
         </div>
+         {result ? <div className={`connection-result ${result.ok ? 'success' : 'failure'}`} role="status" data-testid="status-connection-test">{result.message}</div> : null}
         <div className="modal-actions">
           <button className="button" onClick={onClose} data-testid="button-cancel-connection">Not now</button>
+           <button className="button" onClick={handleTest} disabled={testing} data-testid="button-test-connection">
+             {testing ? 'Testing…' : 'Test connection'}
+           </button>
           <button className="button primary" onClick={onSettings} data-testid="button-open-settings">Open settings <ChevronRight size={14} /></button>
         </div>
       </div>
@@ -506,6 +535,7 @@ function Workspace() {
   const [location, setLocation] = useLocation();
   const [searchTerm, setSearchTerm] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
+  const [connectionReady, setConnectionReady] = useState(false);
   const [notice, setNotice] = useState('');
   const section = sectionForPath(location);
 
@@ -520,7 +550,7 @@ function Workspace() {
 
   return (
     <div className="app-shell">
-      <Sidebar section={section} onConnect={() => setModalOpen(true)} />
+       <Sidebar section={section} onConnect={() => setModalOpen(true)} connectionReady={connectionReady} />
       <div className="main-area">
         <Topbar searchTerm={searchTerm} onSearch={setSearchTerm} onNotice={showNotice} />
         <Switch>
@@ -533,7 +563,7 @@ function Workspace() {
           <Route component={NotFound} />
         </Switch>
       </div>
-      {modalOpen ? <UnavailableModal onClose={() => setModalOpen(false)} onSettings={() => { setModalOpen(false); setLocation('/settings'); }} /> : null}
+       {modalOpen ? <ConnectionModal onClose={() => setModalOpen(false)} onSettings={() => { setModalOpen(false); setLocation('/settings'); }} onConnected={() => { setConnectionReady(true); setModalOpen(false); setNotice('IAS3 connection verified. File listing will be wired next.'); }} /> : null}
       {notice ? <div className="toast-note" role="status" data-testid="status-toast">{notice}</div> : null}
     </div>
   );
