@@ -2,14 +2,29 @@ openapi: 3.1.0
 info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
-  version: 0.1.0
-  description: API specification
+  version: 0.2.0
+  description: |
+    ArchVault API contract. Storage endpoints are served by the api-server
+    artifact and proxy Internet Archive IAS3 (S3-compatible) storage.
+    IAS3 credentials exist only in the server runtime environment; browsers
+    never see them. Large file bytes either stream through the API
+    (bounded memory) or flow browser-direct via short-lived presigned URLs.
+
+    IA platform constraints reflected in this contract:
+      - ListObjectsV2 ignores `delimiter`; folder views are grouped
+        server-side from flat prefix listings.
+      - Listings are eventually consistent (seconds); direct GET/HEAD is
+        authoritative immediately after upload.
+      - The S3 endpoint ignores Range headers; media streams progressively
+        while downloading.
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: storage
+    description: IAS3-backed cloud storage operations
 paths:
   /healthz:
     get:
@@ -24,13 +39,434 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /storage/status:
+    get:
+      operationId: storageStatus
+      tags: [storage]
+      summary: Storage configuration status
+      description: Reports whether IAS3 credentials are configured (never exposes them)
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorageStatus"
+
+  /storage/connection-test:
+    post:
+      operationId: storageConnectionTest
+      tags: [storage]
+      summary: Test the IAS3 connection
+      responses:
+        "200":
+          description: Connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionTestResult"
+        "503":
+          description: Not configured / unreachable / unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionTestResult"
+
+  /storage/items:
+    get:
+      operationId: storageListItems
+      tags: [storage]
+      summary: List archive.org items (drives) accessible to the account
+      responses:
+        "200":
+          description: Item list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemList"
+    post:
+      operationId: storageCreateItem
+      tags: [storage]
+      summary: Create a new archive.org item (global namespace)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{2,82}$" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created: { type: boolean }
+                  item: { type: string }
+      # Item creation also requires metadata conventions enforced by IA.
+
+  /storage/discover:
+    get:
+      operationId: storageDiscover
+      tags: [storage]
+      summary: Search public archive.org items (advancedsearch)
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string } }
+        - { name: rows, in: query, schema: { type: integer, default: 24, maximum: 50 } }
+      responses:
+        "200":
+          description: Public items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoverResult"
+
+  /storage/items/{item}/browse:
+    get:
+      operationId: storageBrowse
+      tags: [storage]
+      summary: Folder-style listing of an item at a prefix
+      parameters:
+        - $ref: "#/components/parameters/ItemParam"
+        - { name: prefix, in: query, schema: { type: string, default: "" } }
+      responses:
+        "200":
+          description: Folder view (virtual folders grouped server-side)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowseResult"
+
+  /storage/items/{item}/search:
+    get:
+      operationId: storageSearch
+      tags: [storage]
+      summary: Case-insensitive filename search across an item
+      parameters:
+        - $ref: "#/components/parameters/ItemParam"
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 2 } }
+      responses:
+        "200":
+          description: Matching files (up to 200)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResult"
+
+  /storage/items/{item}/folders:
+    post:
+      operationId: storageCreateFolder
+      tags: [storage]
+      summary: Create a folder marker (zero-byte key ending with /)
+      parameters:
+        - $ref: "#/components/parameters/ItemParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prefix]
+              properties:
+                prefix: { type: string }
+      responses:
+        "201":
+          description: Folder created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created: { type: boolean }
+                  prefix: { type: string }
+
+  /storage/items/{item}/stat:
+    get:
+      operationId: storageStat
+      tags: [storage]
+      summary: Object metadata (HEAD)
+      parameters:
+        - $ref: "#/components/parameters/ItemParam"
+        - { name: key, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Object stat
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ObjectStat"
+
+  /storage/items/{item}/presign:
+    get:
+      operationId: storagePresign
+      tags: [storage]
+      summary: Browser-direct SigV4 presigned GET URL (streams/downloads)
+      parameters:
+        - $ref: "#/components/parameters/ItemParam"
+        - { name: key, in: query, required: true, schema: { type: string } }
+        - { name: download, in: query, schema: { type: string, enum: ["0", "1"], default: "0" } }
+        - { name: expires, in: query, schema: { type: integer, default: 900, maximum: 604800 } }
+      responses:
+        "200":
+          description: Presigned URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PresignResult"
+
+  /storage/items/{item}/stream:
+    get:
+      operationId: storageStream
+      tags: [storage]
+      summary: Stream object bytes through the API (inline or attachment)
+      parameters:
+        - $ref: "#/components/parameters/ItemParam"
+        - { name: key, in: query, required: true, schema: { type: string } }
+        - { name: download, in: query, schema: { type: string, enum: ["0", "1"], default: "0" } }
+      responses:
+        "200":
+          description: Object bytes (progressive; IA ignores Range)
+          content:
+            application/octet-stream: {}
+
+  /storage/items/{item}/upload:
+    post:
+      operationId: storageUpload
+      tags: [storage]
+      summary: Streamed upload — request body is piped to IA with bounded memory
+      parameters:
+        - $ref: "#/components/parameters/ItemParam"
+        - { name: key, in: query, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream: {}
+      responses:
+        "201":
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResult"
+
+  /storage/items/{item}/rename:
+    post:
+      operationId: storageRename
+      tags: [storage]
+      summary: Rename/move via server-side copy then delete (no re-upload)
+      parameters:
+        - $ref: "#/components/parameters/ItemParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [from, to]
+              properties:
+                from: { type: string }
+                to: { type: string }
+      responses:
+        "200":
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  renamed: { type: boolean }
+                  from: { type: string }
+                  to: { type: string }
+
+  /storage/items/{item}/delete:
+    post:
+      operationId: storageDelete
+      tags: [storage]
+      summary: Delete 1-100 object keys (serial, IA rate-friendly)
+      parameters:
+        - $ref: "#/components/parameters/ItemParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [keys]
+              properties:
+                keys:
+                  type: array
+                  items: { type: string }
+                  minItems: 1
+                  maxItems: 100
+      responses:
+        "200":
+          description: Delete result (partial failures possible)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+
 components:
+  parameters:
+    ItemParam:
+      name: item
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{2,82}$"
   schemas:
     HealthStatus:
       type: object
       properties:
+        status: { type: string }
+      required: [status]
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+          required: [code, message]
+      required: [error]
+    StorageStatus:
+      type: object
+      properties:
+        configured: { type: boolean }
+        endpoint: { type: string }
+        region: { type: string }
+      required: [configured, endpoint, region]
+    ConnectionTestResult:
+      type: object
+      properties:
+        ok: { type: boolean }
         status:
           type: string
-      required:
-        - status
-
+          enum: [connected, not_configured, unauthorized, not_found, unreachable, error]
+        message: { type: string }
+        endpoint: { type: string, nullable: true }
+        item: { type: string, nullable: true }
+      required: [ok, status, message, endpoint, item]
+    ItemSummary:
+      type: object
+      properties:
+        name: { type: string }
+        createdAt: { type: string, nullable: true }
+      required: [name, createdAt]
+    ItemList:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ItemSummary" }
+      required: [items]
+    DiscoveredItem:
+      type: object
+      properties:
+        identifier: { type: string }
+        title: { type: string, nullable: true }
+        mediatype: { type: string, nullable: true }
+        itemSize: { type: integer, nullable: true }
+        downloads: { type: integer, nullable: true }
+      required: [identifier, title, mediatype, itemSize, downloads]
+    DiscoverResult:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/DiscoveredItem" }
+      required: [items]
+    BrowseFolder:
+      type: object
+      properties:
+        name: { type: string }
+        prefix: { type: string }
+        fileCount: { type: integer }
+        sizeBytes: { type: integer }
+        lastModified: { type: string, nullable: true }
+      required: [name, prefix, fileCount, sizeBytes, lastModified]
+    FileEntry:
+      type: object
+      properties:
+        key: { type: string }
+        name: { type: string }
+        size: { type: integer }
+        lastModified: { type: string, nullable: true }
+        etag: { type: string, nullable: true }
+        mime: { type: string }
+      required: [key, name, size, lastModified, etag, mime]
+    BrowseResult:
+      type: object
+      properties:
+        item: { type: string }
+        prefix: { type: string }
+        folders:
+          type: array
+          items: { $ref: "#/components/schemas/BrowseFolder" }
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/FileEntry" }
+        truncated: { type: boolean }
+        scannedKeys: { type: integer }
+      required: [item, prefix, folders, files, truncated, scannedKeys]
+    SearchResult:
+      type: object
+      properties:
+        item: { type: string }
+        query: { type: string }
+        files:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/FileEntry"
+              - type: object
+                properties:
+                  folder: { type: string }
+        scannedKeys: { type: integer }
+      required: [item, query, files, scannedKeys]
+    ObjectStat:
+      type: object
+      properties:
+        key: { type: string }
+        size: { type: integer }
+        contentType: { type: string }
+        lastModified: { type: string, nullable: true }
+        etag: { type: string, nullable: true }
+        mime: { type: string }
+      required: [key, size, contentType, lastModified, etag, mime]
+    PresignResult:
+      type: object
+      properties:
+        url: { type: string }
+        expiresAt: { type: string }
+      required: [url, expiresAt]
+    UploadResult:
+      type: object
+      properties:
+        uploaded: { type: boolean }
+        item: { type: string }
+        key: { type: string }
+        size: { type: integer, nullable: true }
+        etag: { type: string, nullable: true }
+        mime: { type: string }
+      required: [uploaded, item, key, size, etag, mime]
+    DeleteResult:
+      type: object
+      properties:
+        deleted: { type: integer }
+        failures:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              message: { type: string }
+            required: [key, message]
+      required: [deleted, failures]
