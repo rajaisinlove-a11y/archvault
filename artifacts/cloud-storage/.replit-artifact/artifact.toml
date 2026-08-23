@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Cloud Storage"
+description = "A responsive personal cloud-storage workspace with fast folder browsing, search, file actions, and a transparent transfer center designed for low-memory devices."
+version = "1.0.0"
+id = "artifacts/cloud-storage"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18153
+
+[services.development]
+run = "pnpm --filter @workspace/cloud-storage run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/cloud-storage", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/cloud-storage/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18153"
+BASE_PATH = "/"

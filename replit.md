@@ -1,6 +1,6 @@
-# [Project name]
+# Keepsake Cloud Storage
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Keepsake is a responsive personal archive workspace for browsing cloud files and monitoring transparent transfers.
 
 ## Run & Operate
 
@@ -22,23 +22,31 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/cloud-storage/` — responsive web application shell and file-browser experience
+- `artifacts/api-server/` — shared API service, currently retained for the later IAS3 integration phase
+- `lib/api-spec/openapi.yaml` — shared API contract source of truth
+- `lib/db/` — shared Drizzle/PostgreSQL library, reserved for server metadata when backend work begins
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The first milestone is intentionally honest and disconnected: the UI does not invent file records or transfer progress before IAS3 is connected.
+- The frontend is provider-agnostic; IAS3-specific behavior and transfer scheduling belong outside React components.
+- The shell is desktop-first but collapses into touch-friendly mobile navigation without relying on heavy media or continuous animation.
+- The transfer center is shaped around typed engine events so speed, ETA, percentage, retry, and cancellation remain engine-owned values.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Keepsake provides a fast personal archive shell with folder navigation, search, recent files, settings/account surfaces, storage status, file actions, preview/detail states, and a transparent transfer center. IAS3-backed file operations are the next implementation phase.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Keep this provider-agnostic and do not fake backend data, transfer progress, or unsupported capabilities.
+- Prioritize low-memory behavior, responsive browsing, and clear operational status over decorative effects.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- S3/IAS3 credentials must come from Replit Secrets/runtime configuration only; never place them in source, bundles, logs, or docs.
+- The shared logical chunk limit is 52,428,800 bytes; actual streaming buffers must remain smaller and bounded.
 
 ## Pointers
 

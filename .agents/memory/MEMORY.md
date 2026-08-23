@@ -1,0 +1,1 @@
+- [Storage trust model](storage-trust-model.md) — keep the first storage UI honest: no invented files or transfer progress before a real IAS3 event source is connected.

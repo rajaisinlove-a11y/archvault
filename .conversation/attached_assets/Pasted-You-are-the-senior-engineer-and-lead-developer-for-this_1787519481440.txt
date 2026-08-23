@@ -1,0 +1,572 @@
+You are the senior engineer and lead developer for this project. Build a production-quality, client-specific cloud storage application that works on Android, Linux, Windows, and macOS.
+
+The product should feel like a modern cloud drive, taking UX inspiration from Google Drive, Dropbox, TeraBox, Teldrive, and dDrive. Do not copy their source code or branding. Study their publicly available implementations and UX patterns where useful, respect licenses, and implement our own system.
+
+I am the project owner and a relatively inexperienced developer. You are the senior engineer. Do not make major architectural assumptions silently. If a decision materially affects security, storage, compatibility, data integrity, or the final product, ask me before proceeding.
+
+## Core storage requirement
+
+Internet Archive IAS3/S3-compatible storage is the primary object-storage backend.
+
+The application must support:
+
+* Upload files
+* Download files
+* Multiple simultaneous file uploads through a bounded queue
+* Multiple downloads
+* Folders
+* File listing
+* Search
+* Rename
+* Move
+* Delete
+* File metadata
+* File previews where technically practical
+* Progress indicators
+* Transfer speed
+* ETA
+* Pause/cancel where supported
+* Retry
+* Resume/recovery after interruption
+* Large files
+
+## Critical memory requirement
+
+This application must run on very weak hardware, including machines with approximately 2–3 GB RAM.
+
+Do not load entire files into RAM.
+
+Do not create an architecture where a 10 GB file becomes a 10 GB byte array/blob.
+
+All large-file operations must be streaming and bounded.
+
+Use bounded buffers and backpressure.
+
+Memory consumption must remain approximately independent of file size.
+
+## Chunking requirement
+
+Every large transfer must use logical chunks no larger than:
+
+50 MiB = 52,428,800 bytes.
+
+Define this as a single constant.
+
+Never create an implementation where 50 MiB is multiplied by an uncontrolled number of simultaneous workers.
+
+The actual streaming buffer can be substantially smaller than the logical chunk size.
+
+Test these boundaries:
+
+* 1 byte
+* 1 MiB
+* 49 MiB
+* 50 MiB
+* 50 MiB + 1 byte
+* 100 MiB
+* 500 MiB
+* 1 GiB
+
+Verify that:
+
+sum of chunk sizes = original file size
+
+and:
+
+every chunk <= 50 MiB.
+
+## Upload system
+
+Implement a dedicated transfer subsystem rather than putting transfer logic into UI components.
+
+Uploads must:
+
+* Stream from disk
+* Use bounded memory
+* Report progress
+* Support cancellation
+* Retry appropriate transient errors
+* Persist transfer state
+* Recover from application interruption where possible
+* Verify integrity
+* Avoid loading the entire file into memory
+
+Multiple files must use bounded concurrency.
+
+Do NOT simply create one worker per selected file.
+
+The queue must be bounded.
+
+## Download system
+
+Downloads must:
+
+* Stream from IAS3
+* Write incrementally to disk
+* Avoid whole-file RAM allocation
+* Support range/chunked retrieval where IAS3 permits it
+* Support cancellation
+* Support retries
+* Preserve partially downloaded data when possible
+* Resume interrupted transfers where possible
+* Verify integrity
+* Use temporary `.part` files
+* Atomically finalize completed files
+
+Never expose an incomplete download as a completed file.
+
+## Transfer state
+
+Create an explicit transfer state machine.
+
+Possible states include:
+
+QUEUED
+PREPARING
+TRANSFERRING
+PAUSED
+VERIFYING
+COMPLETED
+FAILED
+CANCELLED
+RETRYING
+
+Persist important transfer information locally so the application can recover after restart.
+
+Do not rely solely on UI state.
+
+## Integrity
+
+Use incremental hashing.
+
+Do not read an entire file into RAM merely to calculate SHA-256.
+
+The system must be capable of comparing:
+
+original SHA-256
+
+against:
+
+downloaded SHA-256.
+
+## Retry behavior
+
+Implement bounded retries with exponential backoff and jitter.
+
+Differentiate transient errors from permanent errors.
+
+Do not endlessly retry:
+
+* invalid credentials
+* permission failures
+* invalid requests
+* missing objects
+* user cancellation
+
+## IAS3 integration
+
+Create an isolated storage-provider abstraction.
+
+For example, conceptually:
+
+StorageProvider
+
+with operations for:
+
+* list
+* upload
+* download
+* delete
+* metadata
+* existence checks
+
+Then implement:
+
+InternetArchiveStorageProvider
+
+Do not scatter IAS3-specific HTTP code throughout the UI.
+
+The application should theoretically be able to support another S3-compatible backend later.
+
+Study Internet Archive's IAS3 documentation and relevant GitHub implementations before implementing this provider.
+
+## Credentials
+
+The application will eventually use Internet Archive S3 credentials.
+
+NEVER hard-code credentials.
+
+NEVER commit credentials.
+
+NEVER place credentials in README files.
+
+NEVER put credentials into Git history.
+
+NEVER print credentials in logs.
+
+Use secure runtime configuration/secrets.
+
+I may provide credentials separately for live integration testing.
+
+When credentials are required, tell me exactly what credential is needed and where it should be supplied.
+
+## Application authentication
+
+The application's login password is separate from the IAS3 credentials.
+
+Never store application passwords as plaintext.
+
+If authentication is server-side, use an appropriate password hashing mechanism.
+
+Do not confuse:
+
+application password
+
+with:
+
+IAS3 access key/secret key.
+
+## PostgreSQL
+
+The application may use a remotely hosted PostgreSQL database.
+
+PostgreSQL should store metadata rather than the actual large file bytes.
+
+Possible metadata includes:
+
+* users
+* files
+* folders
+* file IDs
+* object identifiers
+* checksums
+* transfer state
+* timestamps
+* revisions
+
+Do not expose PostgreSQL directly to an untrusted client using a shared database password.
+
+If a backend API is required, design that layer properly.
+
+Ask me before implementing multi-user synchronization semantics.
+
+## UI
+
+The UI must be polished and interactive.
+
+Take UX inspiration from:
+
+Google Drive
+Dropbox
+TeraBox
+Teldrive
+dDrive
+
+Study their strengths, but do not clone them.
+
+The UI should feel like a serious production cloud-storage application.
+
+It should include:
+
+* Sidebar navigation
+* Files view
+* Folder navigation
+* Search
+* Recent files
+* Transfer center
+* Upload controls
+* Download controls
+* Context menus
+* File selection
+* Multi-selection
+* Drag-and-drop where appropriate
+* File preview
+* File details
+* Progress indicators
+* Settings
+* Account/login interface
+
+The interface must work well on desktop and Android.
+
+Do not sacrifice functionality for visual effects.
+
+Avoid unnecessary animations that increase CPU/RAM usage.
+
+## File previews
+
+Support practical previews for formats that can be streamed or efficiently processed.
+
+Do not download an entire huge video/image/archive into RAM just to preview it.
+
+Use streaming, ranges, lazy loading, or platform-native viewers where appropriate.
+
+For unsupported formats, provide a clear download/open option.
+
+## Cross-platform
+
+Do not choose a framework merely because it is popular.
+
+Evaluate realistic options for:
+
+* Android
+* Linux
+* Windows
+* macOS
+* filesystem access
+* streaming
+* background transfers
+* secure storage
+* notifications
+* SQLite/local persistence
+* native file pickers
+* low-memory operation
+* large files
+
+Tell me your recommendation and why before locking the framework if the choice materially affects the architecture.
+
+## Android
+
+Pay particular attention to Android's:
+
+* background execution restrictions
+* scoped storage
+* Storage Access Framework
+* foreground services
+* battery restrictions
+* application lifecycle
+
+Do not assume desktop background-transfer behavior works on Android.
+
+## Desktop
+
+Support appropriate filesystem behavior for:
+
+* Linux
+* Windows
+* macOS
+
+Do not hard-code Linux-specific commands into shared application logic.
+
+## Local database
+
+Use an embedded local database for transfer state and useful local metadata.
+
+The local application should not require PostgreSQL merely to queue or resume a transfer unless the architecture specifically requires it.
+
+## Cache
+
+Use a bounded cache.
+
+Define:
+
+* cache size
+* eviction policy
+* temporary-file location
+* cleanup policy
+
+Do not allow unlimited cache growth.
+
+## File IDs
+
+Do not use filenames as primary identifiers.
+
+Use stable IDs.
+
+A file should have a unique internal identifier independent of its display name.
+
+## Security
+
+Audit the application for:
+
+* credential leakage
+* insecure local storage
+* log leakage
+* path traversal
+* malicious filenames
+* unsafe file extraction
+* unauthorized file access
+* broken authentication
+* SQL injection
+* unsafe API endpoints
+* race conditions
+
+Do not assume that a local desktop application is automatically secure.
+
+## Testing
+
+Build:
+
+### Unit tests
+
+For:
+
+* chunk calculation
+* chunk boundaries
+* checksum calculation
+* retry logic
+* transfer state machine
+* progress calculation
+* cancellation
+
+### Integration tests
+
+For:
+
+* IAS3 authentication
+* IAS3 upload
+* IAS3 download
+* IAS3 listing
+* IAS3 metadata
+* IAS3 deletion
+
+### End-to-end test
+
+Perform:
+
+1. Create a 1 MiB test file.
+2. Calculate SHA-256.
+3. Upload it to IAS3.
+4. Confirm the upload actually succeeded.
+5. Download it.
+6. Calculate SHA-256 of the downloaded file.
+7. Compare hashes.
+8. Report the real result.
+
+Do not fabricate results.
+
+If you cannot perform a test, explicitly say:
+
+"I cannot confirm this because..."
+
+## Large-file testing
+
+After the 1 MiB test, test progressively larger files.
+
+Pay particular attention to:
+
+50 MiB
+51 MiB
+100 MiB
+500 MiB
+1 GiB
+
+Measure:
+
+* memory usage
+* CPU usage
+* transfer speed
+* retry behavior
+* resume behavior
+* checksum correctness
+
+Do not claim low memory usage without measuring it.
+
+## GitHub research
+
+Before implementing the transfer engine, research suitable GitHub projects.
+
+At minimum investigate:
+
+* dDrive
+* Internet Archive IAS3 projects
+* S3-compatible clients
+* chunked upload implementations
+* resumable upload systems
+* resumable download systems
+* streaming file viewers
+* low-memory file transfer implementations
+* cross-platform cloud-storage applications
+
+For every repository used as a reference, record:
+
+* repository
+* URL
+* license
+* relevant implementation
+* what concept was learned
+* whether any code is actually reused
+
+Use inspiration and compatible code only.
+
+Do not blindly copy source code.
+
+## Git workflow
+
+Inspect the existing repository before modifying it.
+
+Do not delete existing work without asking.
+
+Prefer a development branch.
+
+Make small meaningful commits.
+
+Run tests after meaningful changes.
+
+Review the diff before pushing.
+
+Do not push secrets.
+
+## Development process
+
+Work incrementally.
+
+Do not generate the entire application in one enormous change.
+
+First:
+
+1. Inspect the repository.
+2. Research relevant GitHub projects.
+3. Propose the architecture.
+4. Identify decisions I need to make.
+5. Ask those questions.
+6. Wait for my answers when they materially affect architecture.
+7. Implement the smallest testable storage component.
+8. Test it.
+9. Continue incrementally.
+
+## First response
+
+Your FIRST response must NOT contain a huge amount of code.
+
+Instead give me:
+
+### Understanding
+
+What you understand about the product.
+
+### GitHub research
+
+Which repositories you inspected and why.
+
+### Technology recommendation
+
+Your proposed framework and why.
+
+### Architecture
+
+How you intend to separate UI, transfer engine, IAS3, local database, and optional PostgreSQL.
+
+### Risks
+
+Especially:
+
+* IAS3 limitations
+* credentials
+* Android
+* resumability
+* low-memory operation
+* large files
+
+### Questions
+
+Only ask questions whose answers materially affect implementation.
+
+### First milestone
+
+Tell me exactly what you will build first.
+
+Do not make major assumptions.
+
+Do not fabricate test results.
+
+Do not claim anything works until you actually test it.
