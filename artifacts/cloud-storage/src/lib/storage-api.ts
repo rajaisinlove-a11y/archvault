@@ -250,6 +250,14 @@ export function deleteObjects(item: string, keys: string[]): Promise<DeleteResul
   });
 }
 
+/** Recursive folder delete — removes every key under the prefix. */
+export function deletePrefix(item: string, prefix: string): Promise<DeleteResult & { folder: string }> {
+  return request(`/items/${encodeURIComponent(item)}/delete`, {
+    method: "POST",
+    ...jsonBody({ prefix }),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Upload with progress (XHR — streamed to our API, which pipes it to IA)
 // ---------------------------------------------------------------------------
